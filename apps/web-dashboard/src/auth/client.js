@@ -1,0 +1,141 @@
+const baseUrl = (
+  import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:3000'
+).replace(/\/$/, '');
+export const patientAppUrl =
+  import.meta.env.VITE_PATIENT_APP_URL ?? 'http://127.0.0.1:8081';
+let accessToken = null;
+let signingOut = false;
+let refreshInFlight = null;
+export class ApiError extends Error {
+  status;
+  constructor(status, message) {
+    super(message);
+    this.status = status;
+  }
+}
+async function call(path, body, token) {
+  let response;
+  try {
+    response = await fetch(`${baseUrl}/api/auth/${path}`, {
+      method: body === undefined ? 'GET' : 'POST',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Medora-Client': 'web',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      signal: AbortSignal.timeout(15000),
+    });
+  } catch {
+    throw new ApiError(
+      0,
+      'Cannot reach Medora. Check your connection and try again.',
+    );
+  }
+  if (response.status === 204) return undefined;
+  const data = await response.json();
+  if (!response.ok)
+    throw new ApiError(
+      response.status,
+      data.error?.message ?? 'Unable to complete this request.',
+    );
+  return data;
+}
+export async function signIn(mode, values) {
+  signingOut = false;
+  const result = await call(mode, values);
+  accessToken = result.accessToken;
+  return result.user;
+}
+export function refreshSession() {
+  if (signingOut) return Promise.reject(new ApiError(401, 'Please sign in.'));
+  if (!refreshInFlight)
+    refreshInFlight = call('refresh', {})
+      .then((result) => {
+        if (signingOut) throw new ApiError(401, 'Please sign in.');
+        accessToken = result.accessToken;
+        return result.user;
+      })
+      .catch((error) => {
+        accessToken = null;
+        throw error;
+      })
+      .finally(() => {
+        refreshInFlight = null;
+      });
+  return refreshInFlight;
+}
+export async function currentUser() {
+  if (signingOut) throw new ApiError(401, 'Please sign in.');
+  if (!accessToken) return refreshSession();
+  try {
+    const result = await call('me', undefined, accessToken);
+    if (signingOut) throw new ApiError(401, 'Please sign in.');
+    return result.user;
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 401 && !signingOut)
+      return refreshSession();
+    throw error;
+  }
+}
+export async function signOut() {
+  signingOut = true;
+  // Finish any pending rotation before revoking its latest cookie.
+  await refreshInFlight?.catch(() => undefined);
+  try {
+    await call('logout', {});
+  } catch (error) {
+    signingOut = false;
+    throw error;
+  }
+  accessToken = null;
+}
+// Reuse the in-memory access token and HttpOnly refresh cookie for app APIs.
+// Retry only an explicit 401: ambiguous network failures must not reissue a prescription.
+export async function apiRequest(path, body) {
+  async function send() {
+    if (signingOut) throw new ApiError(401, 'Please sign in again.');
+    return fetch(`${baseUrl}/api/${path}`, {
+      method: body === undefined ? 'GET' : 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+      },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      signal: AbortSignal.timeout(15000),
+    });
+  }
+  try {
+    if (!accessToken) await refreshSession();
+    let response = await send();
+    if (response.status === 401) {
+      const account = await refreshSession();
+      window.dispatchEvent(
+        new CustomEvent('medora-session', { detail: account }),
+      );
+      response = await send();
+    }
+    const data = await response.json();
+    if (!response.ok)
+      throw new ApiError(
+        response.status,
+        data.error?.message ?? 'Unable to complete this request.',
+      );
+    return data;
+  } catch (error) {
+    if (error instanceof ApiError) {
+      if (error.status === 401) {
+        accessToken = null;
+        window.dispatchEvent(new Event('medora-session-expired'));
+      }
+      throw error;
+    }
+    throw new ApiError(
+      0,
+      body
+        ? 'The result could not be confirmed. Check prescription history before trying again.'
+        : 'Cannot reach Medora. Check your connection and try again.',
+    );
+  }
+}
