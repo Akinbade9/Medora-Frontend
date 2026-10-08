@@ -16,7 +16,7 @@
     "build": "npm run build --workspaces",
     "build:web": "npm run build --workspace @medora/web-dashboard",
     "build:mobile": "npm run build --workspace @medora/patient-mobile",
-    "test": "npm test --workspace @medora/web-dashboard",
+    "test": "npm test --workspaces --if-present",
     "lint": "eslint . --max-warnings=0",
     "check": "npm run lint && npm run build && npm test",
     "format": "prettier --write .",

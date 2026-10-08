@@ -1,17 +1,8 @@
-import { createContext, useContext, useRef, useState } from 'react';
-import {
-  Modal,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { useRef, useState } from 'react';
+import { Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
-  ArrowRight,
   Bell,
-  ChevronRight,
   ClipboardList,
   HeartPulse,
   Home,
@@ -20,33 +11,23 @@ import {
   X,
 } from 'lucide-react-native';
 import { theme } from './theme';
+import { AppText } from './ui/AppText';
+import { PatientHome, PatientPrescriptions } from './prescriptions/Screens';
 const tabs = [
   { name: 'Home', icon: Home },
   { name: 'Prescriptions', icon: ClipboardList },
   { name: 'Orders', icon: Package },
   { name: 'Profile', icon: UserRound },
 ];
-export const FontReadyContext = createContext(true);
-export function AppText({ weight = 'regular', style, ...props }) {
-  const ready = useContext(FontReadyContext);
-  return (
-    <Text
-      {...props}
-      style={[
-        styles.text,
-        { fontFamily: ready ? theme.font[weight] : undefined },
-        style,
-      ]}
-    />
-  );
-}
 export function PatientLayout({ user, onLogout, signingOut }) {
   const [activeTab, setActiveTab] = useState('Home');
+  const [selectedId, setSelectedId] = useState(null);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const scrollRef = useRef(null);
   const active = tabs.find((tab) => tab.name === activeTab);
   const ActiveIcon = active.icon;
   function navigate(tab) {
+    setSelectedId(null);
     setActiveTab(tab);
     scrollRef.current?.scrollTo({ y: 0, animated: false });
   }
@@ -99,105 +80,38 @@ export function PatientLayout({ user, onLogout, signingOut }) {
           </AppText>
         </View>
         {activeTab === 'Home' ? (
-          <>
-            <View style={styles.hero}>
-              <View style={styles.heroIcon}>
-                <ClipboardList size={30} color={theme.colors.primary} />
-              </View>
-              <AppText weight="semibold" style={styles.heroTitle}>
-                Stay close to your care
-              </AppText>
-              <AppText style={styles.description}>
-                A simple home for your prescriptions, whenever you need them.
-              </AppText>
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => navigate('Prescriptions')}
-                style={({ pressed }) => [
-                  styles.primaryButton,
-                  pressed && styles.pressed,
-                ]}
-              >
-                <AppText weight="semibold" style={styles.primaryButtonText}>
-                  View prescriptions
-                </AppText>
-                <ArrowRight size={18} color={theme.colors.card} />
-              </Pressable>
-            </View>
-            <AppText
-              accessibilityRole="header"
-              weight="semibold"
-              style={styles.sectionTitle}
-            >
-              At your fingertips
-            </AppText>
-            <View style={styles.card}>
-              {[
-                {
-                  name: 'Orders',
-                  icon: Package,
-                  detail: 'A place for your medication orders',
-                },
-                {
-                  name: 'Profile',
-                  icon: UserRound,
-                  detail: 'Your details, together',
-                },
-              ].map(({ name, icon: Icon, detail }, index) => (
-                <Pressable
-                  key={name}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Open ${name}`}
-                  onPress={() => navigate(name)}
-                  style={({ pressed }) => [
-                    styles.shortcut,
-                    index === 0 && styles.rowBorder,
-                    pressed && styles.pressed,
-                  ]}
-                >
-                  <View style={styles.smallIcon}>
-                    <Icon size={22} color={theme.colors.primary} />
-                  </View>
-                  <View style={styles.shortcutCopy}>
-                    <AppText weight="semibold">{name}</AppText>
-                    <AppText style={styles.smallMuted}>{detail}</AppText>
-                  </View>
-                  <ChevronRight size={19} color={theme.colors.muted} />
-                </Pressable>
-              ))}
-            </View>
-            <View style={styles.careNote}>
-              <HeartPulse size={18} color={theme.colors.primary} />
-              <AppText style={styles.smallMuted}>
-                Thoughtfully connected care.
-              </AppText>
-            </View>
-          </>
+          <PatientHome
+            onOpen={(id) => {
+              setSelectedId(id);
+              setActiveTab('Prescriptions');
+              scrollRef.current?.scrollTo({ y: 0, animated: false });
+            }}
+            onBrowse={() => navigate('Prescriptions')}
+          />
+        ) : activeTab === 'Prescriptions' ? (
+          <PatientPrescriptions
+            onNavigate={() =>
+              scrollRef.current?.scrollTo({ y: 0, animated: false })
+            }
+            selectedId={selectedId}
+            onSelect={(id) => {
+              setSelectedId(id);
+              scrollRef.current?.scrollTo({ y: 0, animated: false });
+            }}
+          />
         ) : (
           <View style={[styles.card, styles.emptyCard]}>
-            <View style={styles.emptyIcon}>
-              <ActiveIcon size={32} color={theme.colors.primary} />
-            </View>
+            <ActiveIcon size={32} color={theme.colors.primary} />
             <AppText weight="semibold" style={styles.emptyTitle}>
               {activeTab === 'Profile'
-                ? 'A space that feels like you'
-                : `Your ${activeTab.toLowerCase()} will appear here`}
+                ? user.displayName
+                : 'Your orders will appear here'}
             </AppText>
             <AppText style={styles.emptyDescription}>
-              This is a layout preview. No records or actions are connected yet.
+              {activeTab === 'Profile'
+                ? 'Your patient account keeps your prescriptions together.'
+                : 'Ordering is not available yet.'}
             </AppText>
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => navigate('Home')}
-              style={({ pressed }) => [
-                styles.secondaryButton,
-                pressed && styles.pressed,
-              ]}
-            >
-              <AppText weight="semibold" style={styles.secondaryButtonText}>
-                Back to home
-              </AppText>
-            </Pressable>
           </View>
         )}
         {activeTab === 'Profile' && (
@@ -214,7 +128,7 @@ export function PatientLayout({ user, onLogout, signingOut }) {
         )}
         <View style={styles.previewBadge}>
           <AppText weight="medium" style={styles.previewText}>
-            Layout preview
+            Thoughtfully connected care
           </AppText>
         </View>
       </ScrollView>

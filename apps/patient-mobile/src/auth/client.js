@@ -132,3 +132,63 @@ export async function signOut() {
     throw error;
   }
 }
+
+const sessionListeners = new Set();
+export function subscribeSession(listener) {
+  sessionListeners.add(listener);
+  return () => sessionListeners.delete(listener);
+}
+function notifySession(account) {
+  for (const listener of sessionListeners) listener(account);
+}
+// Read-only patient API requests reuse the existing secure session mechanism.
+export async function apiGet(path) {
+  let controller;
+  let timeout;
+  async function send() {
+    if (signingOut) throw new ApiError(401, 'Please sign in again.');
+    controller = new AbortController();
+    timeout = setTimeout(() => controller.abort(), 15000);
+    try {
+      return await fetch(baseUrl + '/api/' + path, {
+        headers: { Authorization: 'Bearer ' + accessToken },
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+  try {
+    if (!accessToken) notifySession(await refreshSession());
+    const sentToken = accessToken;
+    let response = await send();
+    if (response.status === 401) {
+      // A parallel request may already have rotated this access token.
+      if (sentToken === accessToken || !accessToken)
+        notifySession(await refreshSession());
+      response = await send();
+    }
+    if (!response.ok)
+      throw new ApiError(response.status, 'Unable to load your prescriptions.');
+    try {
+      return await response.json();
+    } catch {
+      throw new ApiError(
+        502,
+        'Your prescription could not be displayed. Please retry.',
+      );
+    }
+  } catch (error) {
+    if (error instanceof ApiError) {
+      if (error.status === 401) {
+        accessToken = null;
+        notifySession(null);
+      }
+      throw error;
+    }
+    throw new ApiError(
+      0,
+      'Cannot reach Medora. Check your connection and try again.',
+    );
+  }
+}

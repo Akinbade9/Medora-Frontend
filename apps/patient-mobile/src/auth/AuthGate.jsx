@@ -12,9 +12,11 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { AppText, PatientLayout } from '../PatientLayout';
+import { PatientLayout } from '../PatientLayout';
+import { AppText } from '../ui/AppText';
 import { theme } from '../theme';
 import {
+  subscribeSession,
   ApiError,
   currentUser,
   dashboardUrl,
@@ -92,6 +94,17 @@ export function AuthGate() {
       clearInterval(interval);
     };
   }, [user, check]);
+  useEffect(
+    () =>
+      subscribeSession((account) => {
+        setUser(account);
+        if (!account) {
+          setConnectionError(false);
+          setError('Your session has ended. Please sign in again.');
+        }
+      }),
+    [],
+  );
   async function logout() {
     setBusy(true);
     setError('');
@@ -193,6 +206,7 @@ export function AuthGate() {
           </AppText>
         ) : null}
         <PatientLayout
+          key={user.id}
           user={user}
           onLogout={() => {
             void logout();
